@@ -1,0 +1,7 @@
+streamlit
+llama-index==0.10.20
+llama-index-embeddings-huggingface
+python-dotenv
+transformers
+torch
+sentence-transformers
