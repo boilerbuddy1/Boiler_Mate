@@ -1,0 +1,6 @@
+streamlit
+llama-index
+python-dotenv
+transformers
+torch
+sentence-transformers
