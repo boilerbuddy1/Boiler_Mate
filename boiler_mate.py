@@ -189,18 +189,35 @@ def log_referral(session_id, postcode, engineer_name, engineer_phone, engineer_e
     ], header=["timestamp", "session_id", "postcode", "engineer_name", "engineer_phone", "engineer_email", "status"])
 
 # ---------- Engineer Finder ----------
-def find_local_engineers(user_postcode: str, max_results: int = 3):
-    """Match engineers by postcode prefix (first 2–3 characters)."""
+def normalize_postcode(pc: str) -> str:
+    """Normalize UK postcode (strip, uppercase, collapse spaces)."""
+    return re.sub(r"\s+", "", pc or "").upper()
+
+def outward_code(pc: str) -> str:
+    """Extract outward code (first part before space)."""
+    pc = normalize_postcode(pc)
+    if not pc:
+        return ""
+    return pc[:4]  # take first 2–4 chars for matching
+
+def find_engineers_for_postcode(user_postcode: str, max_results: int = 3):
     try:
         df = pd.read_csv(ENGINEERS_FILE)
         if "postcode" not in df.columns:
             return []
-
-        area = user_postcode.strip().upper()[:3]
-        matches = df[df["postcode"].str.upper().str.startswith(area)]
-
-        if matches.empty:
+        if not user_postcode:
             return []
+
+        oc = outward_code(user_postcode)
+
+        # Normalize postcodes in CSV
+        df["pc_norm"] = df["postcode"].astype(str).str.upper().str.replace(r"\s+", "", regex=True)
+
+        # Exact outward code match
+        matches = df[df["pc_norm"].str.startswith(oc)]
+
+        if matches.empty and len(oc) >= 2:
+            matches = df[df["pc_norm"].str.startswith(oc[:2])]
 
         return matches.head(max_results).to_dict("records")
     except Exception:
@@ -219,44 +236,6 @@ def main():
         engine = concise_engine if mode == "concise" else detailed_engine
         resp = engine.query(q)
         print(f"\n[{mode}] {resp.response}")
-# --------- CSV Logging ----------
-LOG_FILE = "chat_logs.csv"
-REFERRAL_FILE = "referrals.csv"
-
-def log_interaction(session_id, postcode, question, response, action="chat"):
-    """
-    Save chatbot Q&A interactions into chat_logs.csv
-    """
-    _write_csv(LOG_FILE, [
-        datetime.now().isoformat(),
-        session_id,
-        postcode,
-        action,
-        question,
-        response
-    ], header=["timestamp", "session_id", "postcode", "action", "question", "response"])
-
-def log_referral(session_id, postcode, engineer_name, engineer_phone, engineer_email, status="shown"):
-    """
-    Save engineer referrals into referrals.csv
-    """
-    _write_csv(REFERRAL_FILE, [
-        datetime.now().isoformat(),
-        session_id,
-        postcode,
-        engineer_name,
-        engineer_phone,
-        engineer_email,
-        status
-    ], header=["timestamp", "session_id", "postcode", "engineer_name", "engineer_phone", "engineer_email", "status"])
-
-def _write_csv(path, row, header):
-    new = not os.path.exists(path)
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        if new:
-            w.writerow(header)
-        w.writerow(row)
 
 if __name__ == "__main__":
     main()
