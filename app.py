@@ -15,6 +15,7 @@ from boiler_mate import (
     get_catalog,
     log_interaction,
     log_referral,
+    find_engineers_by_postcode,  # ✅ use from boiler_mate.py
 )
 
 # --- Page Setup ---
@@ -59,35 +60,14 @@ if admin_mode:
 st.title("👨‍🔧🔥 Boiler Mate")
 st.caption("Diagnostics & quick lookups from your boiler manuals. (Beta)")
 
-# --- Engineer Data ---
-@st.cache_data
-def load_engineers():
-    return pd.read_csv("data/engineers.csv")
-
-engineers_df = load_engineers()
-
-def find_engineers_by_postcode(user_postcode, max_results=3):
-    if not user_postcode:
-        return []
-
-    pc = user_postcode.strip().upper()
-    outward_code = pc.split(" ")[0]  # e.g. SW1A
-    prefix2 = pc[:2]
-    prefix3 = pc[:3]
-
-    matches = engineers_df[
-        engineers_df['postcode'].str.upper().str.startswith(outward_code)
-        | engineers_df['postcode'].str.upper().str.startswith(prefix3)
-        | engineers_df['postcode'].str.upper().str.startswith(prefix2)
-    ]
-
-    return matches.head(max_results).to_dict(orient="records")
-
 # --- Postcode Capture ---
 with st.container():
     if "postcode" not in st.session_state:
         st.session_state.postcode = ""
-    st.session_state.postcode = st.text_input("Enter your postcode (for local recommendations)", st.session_state.postcode)
+    st.session_state.postcode = st.text_input(
+        "Enter your postcode (for local recommendations)",
+        st.session_state.postcode
+    )
 
 # --- Brand/Model Dropdowns ---
 catalog = get_catalog()
@@ -117,7 +97,7 @@ if "session_id" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "show_engineers" not in st.session_state:
-    st.session_state.show_engineers = False  # persists engineer results
+    st.session_state.show_engineers = False
 
 # --- Chat History ---
 for m in st.session_state.messages:
