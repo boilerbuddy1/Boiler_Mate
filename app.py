@@ -3,6 +3,18 @@ import re
 import uuid
 import pandas as pd
 import streamlit as st
+import urllib.parse
+
+# --- Admin check via URL ---
+query_params = st.query_params  # get ?key=value from the URL
+admin_token = query_params.get("admin", [""])[0]
+
+if admin_token == st.secrets.get("ADMIN_PASSWORD", "changeme"):
+    st.session_state.is_admin = True
+else:
+    st.session_state.is_admin = False
+
+
 
 # --- Set OpenAI key from Streamlit Secrets ---
 if "OPENAI_API_KEY" in st.secrets:
@@ -15,6 +27,8 @@ from boiler_mate import (
     get_catalog,
     log_interaction,
     log_referral,
+    from boiler_mate import find_engineers_by_postcode
+
 )
 
 # ---------- Page setup ----------
@@ -201,3 +215,43 @@ if st.session_state.show_engineers:
                 engineer_email=e["email"],
                 status="manual"
             )
+            # --- Admin Dashboard ---
+if st.session_state.is_admin:
+    st.sidebar.title("📊 Admin Dashboard")
+
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    # Load chat logs
+    try:
+        chat_df = pd.read_csv("data/chat_logs.csv")
+    except FileNotFoundError:
+        chat_df = pd.DataFrame(columns=["timestamp","session_id","postcode","action","question","response"])
+
+    # Load referrals
+    try:
+        ref_df = pd.read_csv("data/referrals.csv")
+    except FileNotFoundError:
+        ref_df = pd.DataFrame(columns=["timestamp","session_id","postcode","engineer_name","engineer_phone","engineer_email","status"])
+
+    st.subheader("Chatbot Usage")
+    st.write(chat_df.tail(20))
+
+    st.subheader("Engineer Referrals")
+    st.write(ref_df.tail(20))
+
+    # Simple plots
+    if not chat_df.empty:
+        st.subheader("Interactions by Postcode")
+        counts = chat_df["postcode"].value_counts()
+        fig, ax = plt.subplots()
+        counts.head(10).plot(kind="bar", ax=ax)
+        st.pyplot(fig)
+
+    if not ref_df.empty:
+        st.subheader("Referrals by Status")
+        ref_counts = ref_df["status"].value_counts()
+        fig, ax = plt.subplots()
+        ref_counts.plot(kind="bar", ax=ax)
+        st.pyplot(fig)
+
