@@ -21,8 +21,18 @@ from boiler_mate import (
 st.set_page_config(page_title="Boiler Mate", page_icon="🔥", layout="centered")
 
 # --- Admin Mode Detection ---
-query_params = st.query_params
-admin_mode = query_params.get("admin", [""])[0] == "supersecret123"
+try:
+    query_params = st.query_params  # Streamlit >= 1.31
+except Exception:
+    query_params = st.experimental_get_query_params()  # fallback for older versions
+
+admin_mode = False
+if "admin" in query_params:
+    if isinstance(query_params["admin"], list):
+        admin_mode = query_params["admin"][0] == "supersecret123"
+    else:
+        admin_mode = query_params["admin"] == "supersecret123"
+
 
 # ===================== ADMIN DASHBOARD =====================
 if admin_mode:
