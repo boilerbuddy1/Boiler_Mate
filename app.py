@@ -3,20 +3,8 @@ import re
 import uuid
 import pandas as pd
 import streamlit as st
-import urllib.parse
 
-# --- Admin check via URL ---
-query_params = st.query_params  # get ?key=value from the URL
-admin_token = query_params.get("admin", [""])[0]
-
-if admin_token == st.secrets.get("ADMIN_PASSWORD", "changeme"):
-    st.session_state.is_admin = True
-else:
-    st.session_state.is_admin = False
-
-
-
-# --- Set OpenAI key from Streamlit Secrets ---
+# --- OpenAI Key from Secrets ---
 if "OPENAI_API_KEY" in st.secrets:
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
@@ -27,54 +15,64 @@ from boiler_mate import (
     get_catalog,
     log_interaction,
     log_referral,
-
 )
 
-# ---------- Page setup ----------
+# --- Page Setup ---
 st.set_page_config(page_title="Boiler Mate", page_icon="🔥", layout="centered")
+
+# --- Admin Mode Detection ---
+query_params = st.query_params
+admin_mode = query_params.get("admin", [""])[0] == "supersecret123"
+
+# ===================== ADMIN DASHBOARD =====================
+if admin_mode:
+    st.title("📊 Boiler Mate Admin Dashboard (Private)")
+    st.caption("For internal analytics only – not visible to users.")
+
+    # Load logs
+    chat_logs = pd.read_csv("data/chat_logs.csv") if os.path.exists("data/chat_logs.csv") else pd.DataFrame()
+    referral_logs = pd.read_csv("data/referrals.csv") if os.path.exists("data/referrals.csv") else pd.DataFrame()
+
+    st.subheader("💬 Chat Logs")
+    if chat_logs.empty:
+        st.info("No chat logs yet.")
+    else:
+        st.dataframe(chat_logs)
+
+    st.subheader("🔧 Referral Logs")
+    if referral_logs.empty:
+        st.info("No referrals yet.")
+    else:
+        st.dataframe(referral_logs)
+
+    st.stop()  # Prevent chatbot UI from rendering
+
+# ===================== CHATBOT UI =====================
 st.title("👨‍🔧🔥 Boiler Mate")
 st.caption("Diagnostics & quick lookups from your boiler manuals. (Beta)")
 
-# ---------- Engineer Data ----------
+# --- Engineer Data ---
 @st.cache_data
 def load_engineers():
     return pd.read_csv("data/engineers.csv")
 
 engineers_df = load_engineers()
 
-def normalize_postcode(pc: str) -> str:
-    """Return outward code (first part before space)."""
-    if not pc:
-        return ""
-    return pc.strip().upper().split(" ")[0]
-
 def find_engineers_by_postcode(user_postcode, max_results=3):
-    if "postcode" not in engineers_df.columns:
-        return []
-
-    oc = normalize_postcode(user_postcode)
-    if not oc:
-        return []
-
-    # Exact outward code match
-    matches = engineers_df[engineers_df["postcode"].str.upper().str.startswith(oc)]
-
-    # Fallback: first 2 characters
+    outward_code = user_postcode.strip().upper().split(" ")[0]
+    matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(outward_code)]
     if matches.empty:
-        matches = engineers_df[engineers_df["postcode"].str.upper().str.startswith(oc[:2])]
-
+        prefix = outward_code[:2]
+        matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(prefix)]
     return matches.head(max_results).to_dict(orient="records")
 
-# ---------- Postcode capture ----------
+# --- Postcode Capture ---
 with st.container():
     if "postcode" not in st.session_state:
         st.session_state.postcode = ""
-    st.session_state.postcode = st.text_input(
-        "Enter your postcode (for local recommendations)",
-        st.session_state.postcode
-    )
+    st.session_state.postcode = st.text_input("Enter your postcode (for local recommendations)", st.session_state.postcode)
 
-# ---------- Brand/Model dropdowns ----------
+# --- Brand/Model Dropdowns ---
 catalog = get_catalog()
 brands = ["All"] + list(catalog.keys())
 
@@ -85,7 +83,7 @@ with col2:
     models = ["All"] + (catalog.get(brand_sel, []) if brand_sel != "All" else [])
     model_sel = st.selectbox("Model", models, index=0)
 
-# ---------- Build engines ----------
+# --- Build Engines ---
 @st.cache_resource(show_spinner=True)
 def _load_with_filters(brand, model):
     idx = build_or_load_index()
@@ -93,37 +91,32 @@ def _load_with_filters(brand, model):
 
 detailed_engine, concise_engine = _load_with_filters(brand_sel, model_sel)
 
-# ---------- Answer mode ----------
+# --- Answer Mode ---
 mode_choice = st.radio("Answer style", ["Auto (recommended)", "Detailed", "Concise"], horizontal=True)
 
-# ---------- Session state ----------
+# --- Session State ---
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "show_engineers" not in st.session_state:
-    st.session_state.show_engineers = False
 
-# Show chat history
+# Show Chat History
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
 def gc_pretty(text: str) -> str:
     m = re.search(r"\bGC\s*(?:No\.?|number|#)?[:\s]*([0-9]{6,8})\b", text, flags=re.I)
-    if m:
-        return f"GC number is {m.group(1)}."
-    return text
+    return f"GC number is {m.group(1)}." if m else text
 
-# ---------- Chat input ----------
+# --- Chat Input ---
 prompt = st.chat_input("Ask Boiler Mate…")
 if prompt:
-    # Show user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Choose engine
+    # Choose Engine
     if mode_choice == "Detailed":
         engine = detailed_engine
         mode = "detailed"
@@ -134,26 +127,22 @@ if prompt:
         mode = classify_query(prompt)
         engine = concise_engine if mode == "concise" else detailed_engine
 
-    # Get answer
+    # Get Answer
     with st.chat_message("assistant"):
         with st.spinner("Thinking…"):
             try:
                 resp = engine.query(prompt)
-                text = (resp.response or "").strip()
-                if mode == "concise":
-                    text = gc_pretty(text)
+                text = gc_pretty((resp.response or "").strip()) if mode == "concise" else (resp.response or "").strip()
 
-                # Render answer
                 st.markdown(text if text else "_No relevant content found in the selected manuals._")
 
-                # Sources
                 if getattr(resp, "source_nodes", None):
                     with st.expander("📄 Sources"):
                         for node in resp.source_nodes[:3]:
                             meta = node.node.metadata
                             st.write(f"- **{meta.get('file_name','?')}**, page {meta.get('page_label','?')} • {meta.get('brand','?')} {meta.get('model','?')}")
 
-                # --- Auto-detect postcode in query ---
+                # Auto-detect postcode in query
                 postcode_match = re.search(r"\b([A-Z]{1,2}[0-9][A-Z0-9]?(?:\s*\d[A-Z]{2})?)\b", prompt.upper())
                 if postcode_match:
                     user_pc = postcode_match.group(1)
@@ -163,94 +152,29 @@ if prompt:
                         for e in matches:
                             st.write(f"**{e['name']}** — 📞 {e['phone']} — 📍 {e['postcode']} — ✉️ {e['email']}")
                         for e in matches:
-                            log_referral(
-                                session_id=st.session_state.session_id,
-                                postcode=user_pc,
-                                engineer_name=e["name"],
-                                engineer_phone=e["phone"],
-                                engineer_email=e["email"],
-                                status="auto"
-                            )
+                            log_referral(st.session_state.session_id, user_pc, e["name"], e["phone"], e["email"], "auto")
+
+                # Contact engineer button
+                want_help = st.button("📞 Contact a Local Gas Safe Engineer")
+                if want_help:
+                    pc = st.session_state.postcode or ""
+                    recs = find_engineers_by_postcode(pc, max_results=3)
+                    if not pc:
+                        st.warning("Please enter your postcode above so we can match local engineers.")
+                    elif not recs:
+                        st.info("No local engineers found for that area yet. We’re expanding coverage—check back soon.")
+                    else:
+                        st.success("Here are local Gas Safe engineers:")
+                        for e in recs:
+                            st.markdown(f"- **{e['name']}**  \n📞 {e['phone']}  |  ✉️ {e['email']}  |  📍 {e['postcode']}")
+                        for e in recs:
+                            log_referral(st.session_state.session_id, pc, e["name"], e["phone"], e["email"], "manual")
 
                 # Log interaction
-                log_interaction(
-                    session_id=st.session_state.session_id,
-                    postcode=st.session_state.postcode or "unknown",
-                    question=prompt,
-                    response=text,
-                    action=mode
-                )
+                log_interaction(st.session_state.session_id, st.session_state.postcode or "unknown", prompt, text, mode)
 
-                # Save assistant reply
                 st.session_state.messages.append({"role": "assistant", "content": text or "_No content found._"})
 
             except Exception as e:
                 st.error(f"Error answering: {e}")
-
-# ---------- Contact engineer button (persistent) ----------
-if st.button("📞 Contact a Local Gas Safe Engineer"):
-    st.session_state.show_engineers = True
-
-if st.session_state.show_engineers:
-    pc = st.session_state.postcode or ""
-    recs = find_engineers_by_postcode(pc, max_results=3)
-    if not pc:
-        st.warning("Please enter your postcode above so we can match local engineers.")
-    elif not recs:
-        st.info("No local engineers found for that area yet. We’re expanding coverage—check back soon.")
-    else:
-        st.success("Here are local Gas Safe engineers:")
-        for e in recs:
-            st.markdown(
-                f"- **{e['name']}**  \n"
-                f"  📞 {e['phone']}  |  ✉️ {e['email']}  |  📍 {e['postcode']}"
-            )
-        for e in recs:
-            log_referral(
-                session_id=st.session_state.session_id,
-                postcode=pc,
-                engineer_name=e["name"],
-                engineer_phone=e["phone"],
-                engineer_email=e["email"],
-                status="manual"
-            )
-            # --- Admin Dashboard ---
-if st.session_state.is_admin:
-    st.sidebar.title("📊 Admin Dashboard")
-
-    import pandas as pd
-    import matplotlib.pyplot as plt
-
-    # Load chat logs
-    try:
-        chat_df = pd.read_csv("data/chat_logs.csv")
-    except FileNotFoundError:
-        chat_df = pd.DataFrame(columns=["timestamp","session_id","postcode","action","question","response"])
-
-    # Load referrals
-    try:
-        ref_df = pd.read_csv("data/referrals.csv")
-    except FileNotFoundError:
-        ref_df = pd.DataFrame(columns=["timestamp","session_id","postcode","engineer_name","engineer_phone","engineer_email","status"])
-
-    st.subheader("Chatbot Usage")
-    st.write(chat_df.tail(20))
-
-    st.subheader("Engineer Referrals")
-    st.write(ref_df.tail(20))
-
-    # Simple plots
-    if not chat_df.empty:
-        st.subheader("Interactions by Postcode")
-        counts = chat_df["postcode"].value_counts()
-        fig, ax = plt.subplots()
-        counts.head(10).plot(kind="bar", ax=ax)
-        st.pyplot(fig)
-
-    if not ref_df.empty:
-        st.subheader("Referrals by Status")
-        ref_counts = ref_df["status"].value_counts()
-        fig, ax = plt.subplots()
-        ref_counts.plot(kind="bar", ax=ax)
-        st.pyplot(fig)
 
