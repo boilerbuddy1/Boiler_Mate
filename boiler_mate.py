@@ -219,6 +219,44 @@ def main():
         engine = concise_engine if mode == "concise" else detailed_engine
         resp = engine.query(q)
         print(f"\n[{mode}] {resp.response}")
+# --------- CSV Logging ----------
+LOG_FILE = "chat_logs.csv"
+REFERRAL_FILE = "referrals.csv"
+
+def log_interaction(session_id, postcode, question, response, action="chat"):
+    """
+    Save chatbot Q&A interactions into chat_logs.csv
+    """
+    _write_csv(LOG_FILE, [
+        datetime.now().isoformat(),
+        session_id,
+        postcode,
+        action,
+        question,
+        response
+    ], header=["timestamp", "session_id", "postcode", "action", "question", "response"])
+
+def log_referral(session_id, postcode, engineer_name, engineer_phone, engineer_email, status="shown"):
+    """
+    Save engineer referrals into referrals.csv
+    """
+    _write_csv(REFERRAL_FILE, [
+        datetime.now().isoformat(),
+        session_id,
+        postcode,
+        engineer_name,
+        engineer_phone,
+        engineer_email,
+        status
+    ], header=["timestamp", "session_id", "postcode", "engineer_name", "engineer_phone", "engineer_email", "status"])
+
+def _write_csv(path, row, header):
+    new = not os.path.exists(path)
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(header)
+        w.writerow(row)
 
 if __name__ == "__main__":
     main()
