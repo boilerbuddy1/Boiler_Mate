@@ -33,7 +33,6 @@ if "admin" in query_params:
     else:
         admin_mode = query_params["admin"] == "supersecret123"
 
-
 # ===================== ADMIN DASHBOARD =====================
 if admin_mode:
     st.title("📊 Boiler Mate Admin Dashboard (Private)")
@@ -55,7 +54,7 @@ if admin_mode:
     else:
         st.dataframe(referral_logs)
 
-    st.stop()  # Prevent chatbot UI from rendering
+    st.stop()  # ✅ Prevent chatbot UI from rendering
 
 # ===================== CHATBOT UI =====================
 st.title("👨‍🔧🔥 Boiler Mate")
