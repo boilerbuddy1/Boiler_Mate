@@ -1,7 +1,9 @@
-streamlit
-llama-index==0.10.20
-llama-index-embeddings-huggingface
-python-dotenv
-transformers
-torch
-sentence-transformers
+streamlit>=1.36
+llama-index>=0.11.0
+llama-index-llms-openai>=0.2.0
+llama-index-embeddings-huggingface>=0.2.0
+sentence-transformers>=2.2.2
+transformers>=4.41
+openai>=1.40
+python-dotenv>=1.0.1
+matplotlib
