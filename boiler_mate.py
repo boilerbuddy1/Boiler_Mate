@@ -19,7 +19,7 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.vector_stores.types import MetadataFilters, ExactMatchFilter
 
 # ---------- Env ----------
-load_dotenv()  # OpenAI key is injected via st.secrets in app.py
+load_dotenv()  # OpenAI key injected via st.secrets in app.py
 
 # ---------- Paths ----------
 if os.path.exists("manuals"):
@@ -190,36 +190,31 @@ def log_referral(session_id, postcode, engineer_name, engineer_phone, engineer_e
 
 # ---------- Engineer Finder ----------
 def normalize_postcode(pc: str) -> str:
-    """Normalize UK postcode (strip, uppercase, collapse spaces)."""
-    return re.sub(r"\s+", "", pc or "").upper()
-
-def outward_code(pc: str) -> str:
-    """Extract outward code (first part before space)."""
-    pc = normalize_postcode(pc)
+    """Return outward code (first part before space)."""
     if not pc:
         return ""
-    return pc[:4]  # take first 2–4 chars for matching
+    return pc.strip().upper().split(" ")[0]
 
-def find_engineers_for_postcode(user_postcode: str, max_results: int = 3):
+def find_engineers_by_postcode(user_postcode: str, max_results: int = 3):
+    """Find local engineers by outward postcode match (fallback: 2-char prefix)."""
     try:
         df = pd.read_csv(ENGINEERS_FILE)
         if "postcode" not in df.columns:
             return []
-        if not user_postcode:
+
+        oc = normalize_postcode(user_postcode)
+        if not oc:
             return []
 
-        oc = outward_code(user_postcode)
-
-        # Normalize postcodes in CSV
-        df["pc_norm"] = df["postcode"].astype(str).str.upper().str.replace(r"\s+", "", regex=True)
-
         # Exact outward code match
-        matches = df[df["pc_norm"].str.startswith(oc)]
+        matches = df[df["postcode"].str.upper().str.startswith(oc)]
 
-        if matches.empty and len(oc) >= 2:
-            matches = df[df["pc_norm"].str.startswith(oc[:2])]
+        # Fallback: first 2 characters
+        if matches.empty:
+            matches = df[df["postcode"].str.upper().str.startswith(oc[:2])]
 
         return matches.head(max_results).to_dict("records")
+
     except Exception:
         return []
 

@@ -4,7 +4,7 @@ import uuid
 import pandas as pd
 import streamlit as st
 
-# 1) Set OpenAI key from Streamlit Secrets BEFORE importing LLMs
+# --- Set OpenAI key from Streamlit Secrets ---
 if "OPENAI_API_KEY" in st.secrets:
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
@@ -25,21 +25,31 @@ st.caption("Diagnostics & quick lookups from your boiler manuals. (Beta)")
 # ---------- Engineer Data ----------
 @st.cache_data
 def load_engineers():
-    try:
-        return pd.read_csv("data/engineers.csv")
-    except Exception:
-        return pd.DataFrame(columns=["name", "postcode", "phone", "email"])
+    return pd.read_csv("data/engineers.csv")
 
 engineers_df = load_engineers()
 
+def normalize_postcode(pc: str) -> str:
+    """Return outward code (first part before space)."""
+    if not pc:
+        return ""
+    return pc.strip().upper().split(" ")[0]
+
 def find_engineers_by_postcode(user_postcode, max_results=3):
-    if not user_postcode:
+    if "postcode" not in engineers_df.columns:
         return []
-    outward_code = user_postcode.strip().upper().split(" ")[0]
-    matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(outward_code)]
+
+    oc = normalize_postcode(user_postcode)
+    if not oc:
+        return []
+
+    # Exact outward code match
+    matches = engineers_df[engineers_df["postcode"].str.upper().str.startswith(oc)]
+
+    # Fallback: first 2 characters
     if matches.empty:
-        prefix = outward_code[:2]
-        matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(prefix)]
+        matches = engineers_df[engineers_df["postcode"].str.upper().str.startswith(oc[:2])]
+
     return matches.head(max_results).to_dict(orient="records")
 
 # ---------- Postcode capture ----------
@@ -79,7 +89,7 @@ if "session_id" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "show_engineers" not in st.session_state:
-    st.session_state.show_engineers = False  # <-- fix disappearing button issue
+    st.session_state.show_engineers = False
 
 # Show chat history
 for m in st.session_state.messages:
@@ -149,34 +159,6 @@ if prompt:
                                 status="auto"
                             )
 
-                # --- Engineer button logic ---
-                if st.button("📞 Contact a Local Gas Safe Engineer"):
-                    st.session_state.show_engineers = True  # <-- persist
-
-                if st.session_state.show_engineers:
-                    pc = st.session_state.postcode or ""
-                    recs = find_engineers_by_postcode(pc, max_results=3)
-                    if not pc:
-                        st.warning("Please enter your postcode above so we can match local engineers.")
-                    elif not recs:
-                        st.info("No local engineers found for that area yet. We’re expanding coverage—check back soon.")
-                    else:
-                        st.success("Here are local Gas Safe engineers:")
-                        for e in recs:
-                            st.markdown(
-                                f"- **{e['name']}**  \n"
-                                f"  📞 {e['phone']}  |  ✉️ {e['email']}  |  📍 {e['postcode']}"
-                            )
-                        for e in recs:
-                            log_referral(
-                                session_id=st.session_state.session_id,
-                                postcode=pc,
-                                engineer_name=e["name"],
-                                engineer_phone=e["phone"],
-                                engineer_email=e["email"],
-                                status="manual"
-                            )
-
                 # Log interaction
                 log_interaction(
                     session_id=st.session_state.session_id,
@@ -191,3 +173,31 @@ if prompt:
 
             except Exception as e:
                 st.error(f"Error answering: {e}")
+
+# ---------- Contact engineer button (persistent) ----------
+if st.button("📞 Contact a Local Gas Safe Engineer"):
+    st.session_state.show_engineers = True
+
+if st.session_state.show_engineers:
+    pc = st.session_state.postcode or ""
+    recs = find_engineers_by_postcode(pc, max_results=3)
+    if not pc:
+        st.warning("Please enter your postcode above so we can match local engineers.")
+    elif not recs:
+        st.info("No local engineers found for that area yet. We’re expanding coverage—check back soon.")
+    else:
+        st.success("Here are local Gas Safe engineers:")
+        for e in recs:
+            st.markdown(
+                f"- **{e['name']}**  \n"
+                f"  📞 {e['phone']}  |  ✉️ {e['email']}  |  📍 {e['postcode']}"
+            )
+        for e in recs:
+            log_referral(
+                session_id=st.session_state.session_id,
+                postcode=pc,
+                engineer_name=e["name"],
+                engineer_phone=e["phone"],
+                engineer_email=e["email"],
+                status="manual"
+            )
