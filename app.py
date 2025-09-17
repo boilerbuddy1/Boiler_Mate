@@ -3,7 +3,6 @@ import re
 import uuid
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 
 # --- OpenAI Key from Secrets ---
 if "OPENAI_API_KEY" in st.secrets:
@@ -25,7 +24,7 @@ st.set_page_config(page_title="Boiler Mate", page_icon="🔥", layout="centered"
 try:
     query_params = st.query_params  # Streamlit >= 1.31
 except Exception:
-    query_params = st.experimental_get_query_params()  # fallback for older versions
+    query_params = st.experimental_get_query_params()  # fallback
 
 admin_mode = False
 if "admin" in query_params:
@@ -39,91 +38,22 @@ if admin_mode:
     st.title("📊 Boiler Mate Admin Dashboard (Private)")
     st.caption("For internal analytics only – not visible to users.")
 
-    # Load logs
     chat_logs = pd.read_csv("data/chat_logs.csv") if os.path.exists("data/chat_logs.csv") else pd.DataFrame()
     referral_logs = pd.read_csv("data/referrals.csv") if os.path.exists("data/referrals.csv") else pd.DataFrame()
 
-    # --- Filters ---
-    st.sidebar.header("🔍 Filters")
-    postcode_filter = st.sidebar.text_input("Filter by postcode:")
-    engineer_filter = st.sidebar.text_input("Filter by engineer name (referrals only):")
-    date_range = st.sidebar.date_input("Filter by date range (logs)", [])
-
-    # Apply filters to chat logs
-    if not chat_logs.empty:
-        if postcode_filter:
-            chat_logs = chat_logs[chat_logs["postcode"].str.contains(postcode_filter, case=False, na=False)]
-        if date_range and len(date_range) == 2:
-            start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
-            chat_logs["timestamp"] = pd.to_datetime(chat_logs["timestamp"], errors="coerce")
-            chat_logs = chat_logs[(chat_logs["timestamp"] >= start) & (chat_logs["timestamp"] <= end)]
-
-    # Apply filters to referral logs
-    if not referral_logs.empty:
-        if postcode_filter:
-            referral_logs = referral_logs[referral_logs["postcode"].str.contains(postcode_filter, case=False, na=False)]
-        if engineer_filter:
-            referral_logs = referral_logs[referral_logs["engineer_name"].str.contains(engineer_filter, case=False, na=False)]
-        if date_range and len(date_range) == 2:
-            start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
-            referral_logs["timestamp"] = pd.to_datetime(referral_logs["timestamp"], errors="coerce")
-            referral_logs = referral_logs[(referral_logs["timestamp"] >= start) & (referral_logs["timestamp"] <= end)]
-
-    # --- Stats ---
-    st.subheader("📈 Key Stats")
-    total_chats = len(chat_logs)
-    total_referrals = len(referral_logs)
-    conversion_rate = (total_referrals / total_chats * 100) if total_chats > 0 else 0
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Chats", total_chats)
-    col2.metric("Total Referrals", total_referrals)
-    col3.metric("Conversion Rate", f"{conversion_rate:.1f}%")
-
-    # --- Charts ---
-    if not chat_logs.empty:
-        st.subheader("📊 Chats Over Time")
-        chats_by_day = chat_logs.copy()
-        chats_by_day["timestamp"] = pd.to_datetime(chats_by_day["timestamp"], errors="coerce")
-        chats_by_day = chats_by_day.groupby(chats_by_day["timestamp"].dt.date).size()
-        fig, ax = plt.subplots()
-        chats_by_day.plot(ax=ax, marker="o")
-        ax.set_ylabel("Chats")
-        ax.set_xlabel("Date")
-        st.pyplot(fig)
-
-    if not referral_logs.empty:
-        st.subheader("📊 Referrals Over Time")
-        refs_by_day = referral_logs.copy()
-        refs_by_day["timestamp"] = pd.to_datetime(refs_by_day["timestamp"], errors="coerce")
-        refs_by_day = refs_by_day.groupby(refs_by_day["timestamp"].dt.date).size()
-        fig, ax = plt.subplots()
-        refs_by_day.plot(ax=ax, marker="o", color="green")
-        ax.set_ylabel("Referrals")
-        ax.set_xlabel("Date")
-        st.pyplot(fig)
-
-        st.subheader("🥇 Top Engineers by Referrals")
-        top_engineers = referral_logs["engineer_name"].value_counts().head(5)
-        fig, ax = plt.subplots()
-        top_engineers.plot(kind="bar", ax=ax, color="orange")
-        ax.set_ylabel("Referrals")
-        ax.set_xlabel("Engineer")
-        st.pyplot(fig)
-
-    # --- Logs Tables ---
     st.subheader("💬 Chat Logs")
     if chat_logs.empty:
         st.info("No chat logs yet.")
     else:
-        st.dataframe(chat_logs, use_container_width=True)
+        st.dataframe(chat_logs)
 
     st.subheader("🔧 Referral Logs")
     if referral_logs.empty:
         st.info("No referrals yet.")
     else:
-        st.dataframe(referral_logs, use_container_width=True)
+        st.dataframe(referral_logs)
 
-    st.stop()  # ✅ Prevent chatbot UI from rendering
+    st.stop()  # stop execution here so chatbot UI is hidden
 
 # ===================== CHATBOT UI =====================
 st.title("👨‍🔧🔥 Boiler Mate")
@@ -137,11 +67,20 @@ def load_engineers():
 engineers_df = load_engineers()
 
 def find_engineers_by_postcode(user_postcode, max_results=3):
-    outward_code = user_postcode.strip().upper().split(" ")[0]
-    matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(outward_code)]
-    if matches.empty:
-        prefix = outward_code[:2]
-        matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(prefix)]
+    if not user_postcode:
+        return []
+
+    pc = user_postcode.strip().upper()
+    outward_code = pc.split(" ")[0]  # e.g. SW1A
+    prefix2 = pc[:2]
+    prefix3 = pc[:3]
+
+    matches = engineers_df[
+        engineers_df['postcode'].str.upper().str.startswith(outward_code)
+        | engineers_df['postcode'].str.upper().str.startswith(prefix3)
+        | engineers_df['postcode'].str.upper().str.startswith(prefix2)
+    ]
+
     return matches.head(max_results).to_dict(orient="records")
 
 # --- Postcode Capture ---
@@ -177,8 +116,10 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "show_engineers" not in st.session_state:
+    st.session_state.show_engineers = False  # persists engineer results
 
-# Show Chat History
+# --- Chat History ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
@@ -220,7 +161,7 @@ if prompt:
                             meta = node.node.metadata
                             st.write(f"- **{meta.get('file_name','?')}**, page {meta.get('page_label','?')} • {meta.get('brand','?')} {meta.get('model','?')}")
 
-                # Auto-detect postcode in query
+                # --- Auto-detect postcode in query ---
                 postcode_match = re.search(r"\b([A-Z]{1,2}[0-9][A-Z0-9]?(?:\s*\d[A-Z]{2})?)\b", prompt.upper())
                 if postcode_match:
                     user_pc = postcode_match.group(1)
@@ -232,9 +173,11 @@ if prompt:
                         for e in matches:
                             log_referral(st.session_state.session_id, user_pc, e["name"], e["phone"], e["email"], "auto")
 
-                # Contact engineer button
-                want_help = st.button("📞 Contact a Local Gas Safe Engineer")
-                if want_help:
+                # --- Contact Engineer Button ---
+                if st.button("📞 Contact a Local Gas Safe Engineer"):
+                    st.session_state.show_engineers = True
+
+                if st.session_state.show_engineers:
                     pc = st.session_state.postcode or ""
                     recs = find_engineers_by_postcode(pc, max_results=3)
                     if not pc:
@@ -248,10 +191,11 @@ if prompt:
                         for e in recs:
                             log_referral(st.session_state.session_id, pc, e["name"], e["phone"], e["email"], "manual")
 
-                # Log interaction
+                # --- Log Interaction ---
                 log_interaction(st.session_state.session_id, st.session_state.postcode or "unknown", prompt, text, mode)
 
                 st.session_state.messages.append({"role": "assistant", "content": text or "_No content found._"})
 
             except Exception as e:
                 st.error(f"Error answering: {e}")
+
