@@ -23,8 +23,16 @@ Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
 Settings.llm = OpenAI(model="gpt-4o-mini")  # cheap + fast
 
 # ---------- Paths ----------
+# Automatically detect whether "manuals" or "Manuals" exists
+if os.path.exists("manuals"):
+    DOCS_DIR = "manuals"
+elif os.path.exists("Manuals"):
+    DOCS_DIR = "Manuals"
+else:
+    DOCS_DIR = "manuals"  # default fallback if neither exists
+
 PERSIST_DIR = "storage_bge_small"
-DOCS_DIR = "manuals"
+
 
 # ---------- Templates ----------
 QA_TEMPLATE = PromptTemplate(
