@@ -25,30 +25,22 @@ st.caption("Diagnostics & quick lookups from your boiler manuals. (Beta)")
 # ---------- Engineer Data ----------
 @st.cache_data
 def load_engineers():
-    return pd.read_csv("data/engineers.csv")
+    try:
+        return pd.read_csv("data/engineers.csv")
+    except Exception:
+        return pd.DataFrame(columns=["name", "postcode", "phone", "email"])
 
 engineers_df = load_engineers()
 
 def find_engineers_by_postcode(user_postcode, max_results=3):
     if not user_postcode:
         return []
-
-    # Normalize to outward code (first part of postcode, e.g. "SW1A 1AA" -> "SW1A")
     outward_code = user_postcode.strip().upper().split(" ")[0]
-
-    # Normalize engineer postcodes too
-    engineers_df["outward"] = engineers_df["postcode"].str.upper().str.split(" ").str[0]
-
-    # Exact outward match
-    matches = engineers_df[engineers_df["outward"].str.startswith(outward_code)]
-
-    # If nothing, try first 2 characters
+    matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(outward_code)]
     if matches.empty:
         prefix = outward_code[:2]
-        matches = engineers_df[engineers_df["outward"].str.startswith(prefix)]
-
+        matches = engineers_df[engineers_df['postcode'].str.upper().str.startswith(prefix)]
     return matches.head(max_results).to_dict(orient="records")
-
 
 # ---------- Postcode capture ----------
 with st.container():
@@ -86,6 +78,8 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "show_engineers" not in st.session_state:
+    st.session_state.show_engineers = False  # <-- fix disappearing button issue
 
 # Show chat history
 for m in st.session_state.messages:
@@ -155,37 +149,13 @@ if prompt:
                                 status="auto"
                             )
 
-                # --- Contact engineer button ---
-                if "show_engineers" not in st.session_state:
-    st.session_state.show_engineers = False
+                # --- Engineer button logic ---
+                if st.button("📞 Contact a Local Gas Safe Engineer"):
+                    st.session_state.show_engineers = True  # <-- persist
 
-if st.button("📞 Contact a Local Gas Safe Engineer"):
-    st.session_state.show_engineers = True
-
-if st.session_state.show_engineers:
-    pc = st.session_state.postcode or ""
-    recs = find_engineers_by_postcode(pc, max_results=3)
-    if not pc:
-        st.warning("Please enter your postcode above so we can match local engineers.")
-    elif not recs:
-        st.info("No local engineers found for that area yet. We’re expanding coverage—check back soon.")
-    else:
-        st.success("Here are local Gas Safe engineers:")
-        for e in recs:
-            st.markdown(
-                f"- **{e['name']}**  \n"
-                f"  📞 {e['phone']}  |  ✉️ {e['email']}  |  📍 {e['postcode']}"
-            )
-        for e in recs:
-            log_referral(
-                session_id=st.session_state.session_id,
-                postcode=pc,
-                engineer_name=e["name"],
-                engineer_phone=e["phone"],
-                engineer_email=e["email"],
-                status="manual"
-            )
-
+                if st.session_state.show_engineers:
+                    pc = st.session_state.postcode or ""
+                    recs = find_engineers_by_postcode(pc, max_results=3)
                     if not pc:
                         st.warning("Please enter your postcode above so we can match local engineers.")
                     elif not recs:
